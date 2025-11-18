@@ -93,6 +93,31 @@ func main() {
 	go collector.CleanupOldStreams(*streamAge, *finalizedAge)
 
 	go func() {
+		captureTicker := time.NewTicker(5 * time.Second)
+		defer captureTicker.Stop()
+		for range captureTicker.C {
+			stats, statsV3, err := tpacket.SocketStats()
+			if err != nil {
+				logger.Error("Error getting stats", "error", err)
+				continue
+			}
+			if statsV3.Packets() > 0 {
+				collector.UpdateCaptureStats(
+					uint64(statsV3.Drops()),
+					uint64(statsV3.Packets()),
+					uint64(statsV3.QueueFreezes()),
+				)
+			} else if stats.Packets() > 0 {
+				collector.UpdateCaptureStats(
+					uint64(stats.Drops()),
+					uint64(stats.Packets()),
+					0,
+				)
+			}
+		}
+	}()
+
+	go func() {
 		ticker := time.NewTicker(60 * time.Second)
 		defer ticker.Stop()
 		for range ticker.C {

@@ -13,9 +13,21 @@ Some comparison stats (according to claude.ai):
 - `AF_PACKET` (w/ zero-copy ring buffer): 4-6 Million pps (CPU 50-60%)
 - `XDP + eBPF`: 10-24 Million pps (CPU 30-40%)
 
-TODO: add real CPU usage data
-
 The exporter currently only observes IPV4 TCP streams.
+
+## Performance / Requirements
+
+I did some local benchmarking with the following setup:
+
+- simple Golang webserver listening on `lo` which responds with random-length answers
+- two instances of `wrk -t1000 -c1500 -d10m http://127.0.0.1:8080/` (1000 Threads, 1500 connections, 10 minute duration)
+- tcp-stream-exporter commandline: `./tcp-stream-exporter -interface lo -packet-filter "tcp and port 8080" -stream-age 30s -finalized-age 30s -numblocks 1024`
+
+`tcp-stream-exporter` observes 4000 parallel streams as expected and reports 0 dropped packets. Memory usage is around
+700-850MB, CPU usage is 90-140% (e.g. slightly more than one core on an AMD Ryzen 7 PRO 6850U), traffic level ~2.7GBit/s.
+Canceling and restarting `wrk` processes quadrupels the stream count for a while (until timed out streams are cleaned up).
+**However**, the cleanup process seems to be slow/blocking and leads to a large number of dropped packets in the exporter
+**if** many stale TCP connections need to be removed (e.g. 800-1000). There seems to be room for improvement here.
 
 ## Usage
 ```text
@@ -58,6 +70,11 @@ The exporter currently only observes IPV4 TCP streams.
 ```shell
 # observe TCP packets with src/dst port 80 and forget inactive streams after 60s
 ./tcp-stream-exporter -packet-filter "tcp and port 80" -stream-age 60s
+```
+
+```shell
+# observe TCP packets with src/dst port 80 and raise ring buffer to 512 (if many drops are reported)
+./tcp-stream-exporter -packet-filter "tcp and port 80" -numblocks 512
 ```
 
 ## Packet filter
@@ -121,6 +138,7 @@ tcp_zero_window_events_total: Number of zero window events
 
 capture_dropped_packets_total: Number of packets dropped by kernel
 capture_packets_processed_total: Number of packets processed
+capture_queue_freezes_total: Number of queue freezes (only AF_PACKET v3)
 ```
 
 You can additionally enable the built-in process/runtime metrics with the flags `-go-metrics` and `-process-metrics`.

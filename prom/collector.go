@@ -17,28 +17,33 @@ type TCPCollector struct {
 	Streams    map[types.StreamKey]*types.TCPStream
 	StreamsMux sync.RWMutex
 
-	streamCount        *prometheus.Desc
-	retransmits        *prometheus.Desc
-	resets             *prometheus.Desc
-	windowSize         *prometheus.Desc
-	avgDelay           *prometheus.Desc
-	jitter             *prometheus.Desc
-	bitrate            *prometheus.Desc
-	bitrateVariance    *prometheus.Desc
-	packetSizeVariance *prometheus.Desc
-	iatVariance        *prometheus.Desc
-	outOfOrder         *prometheus.Desc
-	duplicateAcks      *prometheus.Desc
-	zeroWindows        *prometheus.Desc
-	streamHealth       *prometheus.Desc
-	streamUptime       *prometheus.Desc
-	gapDetections      *prometheus.Desc
-	maxDelay           *prometheus.Desc
-	minDelay           *prometheus.Desc
-	packetRate         *prometheus.Desc
-	bytesTransferred   *prometheus.Desc
-	droppedPackets     *prometheus.Desc
-	packetsProcessed   *prometheus.Desc
+	streamCount         *prometheus.Desc
+	retransmits         *prometheus.Desc
+	resets              *prometheus.Desc
+	windowSize          *prometheus.Desc
+	avgDelay            *prometheus.Desc
+	jitter              *prometheus.Desc
+	bitrate             *prometheus.Desc
+	bitrateVariance     *prometheus.Desc
+	packetSizeVariance  *prometheus.Desc
+	iatVariance         *prometheus.Desc
+	outOfOrder          *prometheus.Desc
+	duplicateAcks       *prometheus.Desc
+	zeroWindows         *prometheus.Desc
+	streamHealth        *prometheus.Desc
+	streamUptime        *prometheus.Desc
+	gapDetections       *prometheus.Desc
+	maxDelay            *prometheus.Desc
+	minDelay            *prometheus.Desc
+	packetRate          *prometheus.Desc
+	bytesTransferred    *prometheus.Desc
+	droppedPackets      *prometheus.Desc
+	packetsProcessed    *prometheus.Desc
+	queueFreezes        *prometheus.Desc
+	captureDropped      uint64
+	captureProcessed    uint64
+	captureQueueFreezes uint64
+	captureMux          sync.RWMutex
 }
 
 func NewTCPCollector() *TCPCollector {
@@ -128,6 +133,9 @@ func NewTCPCollector() *TCPCollector {
 		),
 		packetsProcessed: prometheus.NewDesc(
 			"capture_packets_processed_total", "Number of packets processed", nil, nil,
+		),
+		queueFreezes: prometheus.NewDesc(
+			"capture_queue_freezes_total", "Number of queue freezes (only AF_PACKET v3)", nil, nil,
 		),
 	}
 }
@@ -243,6 +251,17 @@ func (c *TCPCollector) Collect(ch chan<- prometheus.Metric) {
 	ch <- prometheus.MustNewConstMetric(
 		c.streamCount, prometheus.GaugeValue, activeCount,
 	)
+	c.captureMux.RLock()
+	ch <- prometheus.MustNewConstMetric(
+		c.droppedPackets, prometheus.CounterValue, float64(c.captureDropped),
+	)
+	ch <- prometheus.MustNewConstMetric(
+		c.packetsProcessed, prometheus.CounterValue, float64(c.captureProcessed),
+	)
+	ch <- prometheus.MustNewConstMetric(
+		c.queueFreezes, prometheus.CounterValue, float64(c.captureQueueFreezes),
+	)
+	c.captureMux.RUnlock()
 }
 
 func (c *TCPCollector) ProcessPacket(packet gopacket.Packet) {
@@ -404,6 +423,7 @@ func (c *TCPCollector) ProcessPacket(packet gopacket.Packet) {
 	stream.LastSeq = tcp.Seq
 	stream.LastAck = tcp.Ack
 	stream.LastTimestamp = now
+
 }
 
 func (c *TCPCollector) CleanupOldStreams(maxTimeoutAge time.Duration, maxFinalizedAge time.Duration) {
@@ -438,4 +458,12 @@ func (c *TCPCollector) CleanupOldStreams(maxTimeoutAge time.Duration, maxFinaliz
 		}
 		c.StreamsMux.Unlock()
 	}
+}
+
+func (c *TCPCollector) UpdateCaptureStats(dropped, processed, freezes uint64) {
+	c.captureMux.Lock()
+	defer c.captureMux.Unlock()
+	c.captureDropped = dropped
+	c.captureProcessed = processed
+	c.captureQueueFreezes = freezes
 }
