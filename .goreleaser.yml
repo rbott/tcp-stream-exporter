@@ -1,0 +1,30 @@
+---
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+version: 2
+before:
+  hooks:
+    - go mod download
+
+builds:
+  - goos:
+      - linux
+    goarch:
+      - amd64
+
+archives:
+  - files:
+      - README.md
+      - LICENSE
+
+checksum:
+  algorithm: sha512
+
+release:
+  github:
+    owner: rbott
+    name: tcp-stream-exporter
+  draft: true
+  prerelease: auto
+
+changelog:
+  sort: asc
