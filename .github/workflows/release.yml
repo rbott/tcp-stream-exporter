@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches: [ "main" ]
-    tags: [ "*" ]
+    tags: [ "v*" ]
 
 jobs:
   build:
@@ -14,6 +14,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+
+      - name: Install build dependencies
+        run: "apt-get update && apt-get install libpcap-dev"
 
       - name: Set up Go 1.25
         uses: actions/setup-go@v5
